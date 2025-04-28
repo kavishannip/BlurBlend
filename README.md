@@ -1,9 +1,9 @@
 # BlurBlend 🖼️
 
-[![Live Demo](https://img.shields.io/badge/Live_Demo-Streamlit-FF4B4B?style=for-the-badge&logo=streamlit)](https://blurblend.streamlit.app/)
-[![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github)](https://github.com/kavishannip/BlurBlend)
-
 BlurBlend is an AI-powered tool that automatically detects and separates foreground subjects from backgrounds in images and applies a professional-looking blur effect to the background while keeping the subject sharp and in focus.
+
+Live Demo: [https://blurblend.streamlit.app/](https://blurblend.streamlit.app/)  
+GitHub Repository: [https://github.com/kavishannip/BlurBlend](https://github.com/kavishannip/BlurBlend)
 
 ![BlurBlend Demo](screenshots/1.png)
 
@@ -21,7 +21,7 @@ BlurBlend is an AI-powered tool that automatically detects and separates foregro
 
 ## Live Demo
 
-Try out BlurBlend at [blurblend.streamlit.app](https://blurblend.streamlit.app/).
+Try out BlurBlend at [https://blurblend.streamlit.app/](https://blurblend.streamlit.app/).
 
 ---
 
@@ -132,8 +132,6 @@ pip install -r requirements.txt
 
 ---
 
-
-
 ## Contributing
 
 Contributions are welcome! If you have ideas for improvements or new features, feel free to open an issue or submit a pull request.
@@ -150,5 +148,5 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 Developed by [Kavishan Nipun](https://www.linkedin.com/in/kavishan-nipun-876930222/).
 
-[![GitHub](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/kavishannip)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/kavishan-nipun-876930222/)
+GitHub: [https://github.com/kavishannip](https://github.com/kavishannip)  
+LinkedIn: [https://www.linkedin.com/in/kavishan-nipun-876930222/](https://www.linkedin.com/in/kavishan-nipun-876930222/)
