@@ -131,6 +131,15 @@ For best results, use images with clear subjects against a distinct background.
 """)
 
 # Footer
+# Footer
 st.markdown("---")
 st.caption("BlurBlend • AI-Powered Background Blur")
-st.caption("© developed byKavishan Nipun")
+
+# Social media links row
+col1, col2, col3 = st.columns([1, 1, 3])
+with col1:
+    st.markdown("[![GitHub](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/kavishannip)")
+with col2:
+    st.markdown("[![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/kavishan-nipun-876930222/)")
+
+st.caption("© developed by Kavishan Nipun")
