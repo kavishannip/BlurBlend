@@ -132,15 +132,7 @@ pip install -r requirements.txt
 
 ---
 
-## Screenshots
 
-### Original Image
-![Original Image](screenshots/1.png)
-
-### Processed Image
-*Example of a blurred background image.*
-
----
 
 ## Contributing
 
