@@ -1,9 +1,10 @@
-from PIL import Image,  ImageFilter
+from PIL import Image, ImageFilter
 from transformers import pipeline
 import torch
-from typing import  Optional
+from typing import Optional
 import logging
 import numpy as np
+import time
 
 # configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,16 +15,45 @@ class BlurBlend:
         """Initializing the model"""
         self.model_path = model_path
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model = None
         self.load_model()
 
     def load_model(self) -> None:
-        """Loading the model"""
+        """Loading the model with improved error handling"""
         try:
-            self.model = pipeline("image-segmentation", model=self.model_path, device=self.device)
-            logger.info(f"Model loaded successfully on {self.device}")
+            logger.info(f"Attempting to load model {self.model_path} on {self.device}")
+            
+            # Add a retry mechanism
+            max_retries = 3
+            current_try = 0
+            
+            while current_try < max_retries:
+                try:
+                    self.model = pipeline("image-segmentation", model=self.model_path, device=self.device)
+                    logger.info(f"Model loaded successfully on {self.device}")
+                    return
+                except OSError as e:
+                    current_try += 1
+                    if current_try < max_retries:
+                        logger.warning(f"Attempt {current_try} failed, retrying... Error: {str(e)}")
+                        time.sleep(2)  # Wait before retrying
+                    else:
+                        # If we're on CUDA but failing, try falling back to CPU
+                        if self.device != "cpu":
+                            logger.warning(f"Failed to load model on {self.device}, trying CPU instead")
+                            self.device = "cpu"
+                            try:
+                                self.model = pipeline("image-segmentation", model=self.model_path, device=self.device)
+                                logger.info(f"Model loaded successfully on CPU")
+                                return
+                            except Exception as inner_e:
+                                logger.error(f"Error loading model on CPU: {inner_e}")
+                                raise
+                        else:
+                            raise
         except Exception as e:
             logger.error(f"Error loading model: {e}")
-            raise
+            raise RuntimeError(f"Failed to load model {self.model_path}: {str(e)}")
 
     def segment_image(self, image: Image.Image) -> np.ndarray:
         """
