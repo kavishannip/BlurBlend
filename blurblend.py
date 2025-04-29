@@ -1,27 +1,48 @@
-from PIL import Image, ImageFilter
-from transformers import pipeline
-import torch
+from PIL import Image, ImageFilter, ImageDraw
 from typing import Optional
 import logging
 import numpy as np
 import time
 
+
 # configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Import torch separately to avoid the class registration error
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    logger.warning("PyTorch not available, using CPU fallback mode")
+    TORCH_AVAILABLE = False
 
 class BlurBlend:
     def __init__(self, model_path: str):
         """Initializing the model"""
         self.model_path = model_path
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if TORCH_AVAILABLE and torch.cuda.is_available() else "cpu"
         self.model = None
+        self.fallback_mode = False
         self.load_model()
 
     def load_model(self) -> None:
         """Loading the model with improved error handling"""
         try:
+            if not TORCH_AVAILABLE:
+                logger.warning("PyTorch not available, using fallback mode")
+                self.fallback_mode = True
+                return
+                
             logger.info(f"Attempting to load model {self.model_path} on {self.device}")
+            
+            # Delay imports to avoid issues
+            try:
+                from transformers import pipeline
+            except ImportError as e:
+                logger.error(f"Failed to import transformers: {e}")
+                self.fallback_mode = True
+                return
             
             # Add a retry mechanism
             max_retries = 3
@@ -29,31 +50,44 @@ class BlurBlend:
             
             while current_try < max_retries:
                 try:
+                    # Normal loading attempt
                     self.model = pipeline("image-segmentation", model=self.model_path, device=self.device)
                     logger.info(f"Model loaded successfully on {self.device}")
                     return
-                except OSError as e:
+                except Exception as e:
                     current_try += 1
+                    error_str = str(e)
+                    logger.warning(f"Attempt {current_try} failed: {error_str}")
+                    
+                    # Check for specific errors
+                    if "no running event loop" in error_str or "_path" in error_str:
+                        logger.warning("PyTorch class registration issue detected, using fallback mode")
+                        self.fallback_mode = True
+                        return
+                    
                     if current_try < max_retries:
-                        logger.warning(f"Attempt {current_try} failed, retrying... Error: {str(e)}")
                         time.sleep(2)  # Wait before retrying
                     else:
-                        # If we're on CUDA but failing, try falling back to CPU
+                        # If we're on CUDA but failing, try CPU
                         if self.device != "cpu":
-                            logger.warning(f"Failed to load model on {self.device}, trying CPU instead")
+                            logger.warning(f"Trying CPU instead of {self.device}")
                             self.device = "cpu"
                             try:
                                 self.model = pipeline("image-segmentation", model=self.model_path, device=self.device)
                                 logger.info(f"Model loaded successfully on CPU")
                                 return
-                            except Exception as inner_e:
-                                logger.error(f"Error loading model on CPU: {inner_e}")
-                                raise
-                        else:
-                            raise
+                            except Exception as cpu_error:
+                                logger.error(f"CPU loading failed: {cpu_error}")
+                        
+                        # All attempts failed, use fallback mode
+                        logger.warning("All loading attempts failed, using fallback mode")
+                        self.fallback_mode = True
+                        return
+                        
         except Exception as e:
-            logger.error(f"Error loading model: {e}")
-            raise RuntimeError(f"Failed to load model {self.model_path}: {str(e)}")
+            logger.error(f"Error in load_model: {e}")
+            self.fallback_mode = True
+            return
 
     def segment_image(self, image: Image.Image) -> np.ndarray:
         """
@@ -66,13 +100,18 @@ class BlurBlend:
             Binary mask where 1 represents foreground and 0 represents background
         """
         try:
+            # If in fallback mode or no model was loaded, use simple edge detection
+            if self.fallback_mode or self.model is None:
+                logger.info("Using fallback segmentation method")
+                return self.simple_edge_based_segmentation(image)
+                
             # Ensure image is not too large for the model
             orig_size = image.size
             if max(orig_size) > 1024:
                 scale = 1024 / max(orig_size)
                 resized_image = image.resize(
                     (int(orig_size[0] * scale), int(orig_size[1] * scale)), 
-                    Image.LANCZOS
+                    Image.Resampling.LANCZOS if hasattr(Image, 'Resampling') else Image.LANCZOS
                 )
             else:
                 resized_image = image
@@ -106,7 +145,10 @@ class BlurBlend:
                         logger.info(f"Found clothing item in segment labeled: {segment['label']}")
                 
                 if found_clothing:
-                    mask_img = Image.fromarray(mask * 255).resize(orig_size, Image.LANCZOS)
+                    mask_img = Image.fromarray(mask * 255).resize(
+                        orig_size, 
+                        Image.Resampling.LANCZOS if hasattr(Image, 'Resampling') else Image.LANCZOS
+                    )
                     return np.array(mask_img) > 128
             
             # Look for person/people and other common foreground classes
@@ -128,7 +170,10 @@ class BlurBlend:
                     logger.info(f"Found person in segment labeled: {segment['label']}")
             
             if found_person:
-                mask_img = Image.fromarray(mask * 255).resize(orig_size, Image.LANCZOS)
+                mask_img = Image.fromarray(mask * 255).resize(
+                    orig_size, 
+                    Image.Resampling.LANCZOS if hasattr(Image, 'Resampling') else Image.LANCZOS
+                )
                 return np.array(mask_img) > 128
             
             if len(result) > 0:
@@ -150,15 +195,73 @@ class BlurBlend:
                 )
                 mask = (segment_mask > 128).astype(np.uint8)
                 
-                mask_img = Image.fromarray(mask * 255).resize(orig_size, Image.LANCZOS)
+                mask_img = Image.fromarray(mask * 255).resize(
+                    orig_size, 
+                    Image.Resampling.LANCZOS if hasattr(Image, 'Resampling') else Image.LANCZOS
+                )
                 return np.array(mask_img) > 128
 
             logger.warning("No suitable foreground object detected in the image")
-            return np.zeros(image.size[::-1], dtype=np.uint8)
+            return self.simple_edge_based_segmentation(image)
         
         except Exception as e:
             logger.error(f"Error during image segmentation: {e}")
-            return np.zeros(image.size[::-1], dtype=np.uint8)
+            return self.simple_edge_based_segmentation(image)
+
+    def simple_edge_based_segmentation(self, image: Image.Image) -> np.ndarray:
+        """
+        Fallback segmentation using edge detection and center focus
+        
+        Args:
+            image: PIL Image to segment
+            
+        Returns:
+            Binary mask where 1 represents foreground and 0 represents background
+        """
+        try:
+            # Convert to grayscale and detect edges
+            gray = image.convert("L")
+            
+            # Apply edge detection using filters
+            edges = gray.filter(ImageFilter.FIND_EDGES)
+            
+            # Enhance contrast to make edges more prominent
+            edges = edges.point(lambda p: p * 1.5)
+            
+            # Create a center weighted mask (assume subject is in center)
+            width, height = image.size
+            center_x, center_y = width // 2, height // 2
+            
+            # Create gradient mask with center focus
+            mask = np.zeros((height, width), dtype=np.float32)
+            for y in range(height):
+                for x in range(width):
+                    # Distance from center (normalized)
+                    dist = np.sqrt(((x - center_x) / width) ** 2 + ((y - center_y) / height) ** 2)
+                    # Center weight (1 at center, fading to 0 at edges)
+                    mask[y, x] = max(0, 1 - (dist * 2.2))
+            
+            # Combine with edge information
+            edge_array = np.array(edges) / 255.0
+            mask = mask * 0.7 + edge_array * 0.3
+            
+            # Threshold to binary
+            return (mask > 0.4).astype(np.uint8)
+            
+        except Exception as e:
+            logger.error(f"Error in fallback segmentation: {e}")
+            # Return a simple elliptical mask as last resort
+            width, height = image.size
+            mask = np.zeros((height, width), dtype=np.uint8)
+            
+            # Create elliptical mask
+            center_x, center_y = width // 2, height // 2
+            for y in range(height):
+                for x in range(width):
+                    if ((x - center_x) / (width * 0.45)) ** 2 + ((y - center_y) / (height * 0.55)) ** 2 < 1:
+                        mask[y, x] = 1
+                        
+            return mask
 
     def apply_blur(self, image: Image.Image, mask: np.ndarray, blur_radius: int = 15) -> Image.Image:
         """
@@ -177,7 +280,10 @@ class BlurBlend:
             
             if mask.shape[:2][::-1] != image.size:
                 logger.info(f"Resizing mask from {mask.shape[:2][::-1]} to {image.size}")
-                mask_img = Image.fromarray(mask * 255).convert('L').resize(image.size)
+                mask_img = Image.fromarray(mask * 255).convert('L').resize(
+                    image.size,
+                    Image.Resampling.LANCZOS if hasattr(Image, 'Resampling') else Image.LANCZOS
+                )
                 mask = np.array(mask_img) > 128
             
             mask_img = Image.fromarray((mask * 255).astype(np.uint8)).convert('L')
@@ -214,4 +320,12 @@ class BlurBlend:
         
         except Exception as e:
             logger.error(f"Error processing image: {e}")
-            raise
+            # Return original image as fallback
+            try:
+                return Image.open(image_path).convert("RGB")
+            except:
+                # Create a blank image with error message if everything fails
+                img = Image.new('RGB', (800, 400), color=(255, 255, 255))
+                draw = ImageDraw.Draw(img)
+                draw.text((50, 150), "Error processing image", fill=(0, 0, 0))
+                return img
